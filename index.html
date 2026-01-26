@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>아이젠하워 매트릭스 플래너</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap');
+        body { font-family: 'Noto Sans KR', sans-serif; background-color: #f3f4f6; }
+        .quadrant { min-height: 300px; transition: all 0.3s ease; }
+        .task-item { transition: transform 0.1s; }
+        .task-item:active { transform: scale(0.98); }
+        .completed { text-decoration: line-through; opacity: 0.6; }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+    <div class="max-w-6xl mx-auto">
+        <!-- 헤더 및 날짜 선택 -->
+        <div class="flex flex-col gap-4 mb-6">
+            <div class="flex items-center justify-between bg-white p-4 rounded-xl shadow-sm">
+                <button onclick="changeDate(-1)" class="p-2 hover:bg-gray-100 rounded-full text-2xl">〈</button>
+                <div class="text-center">
+                    <h1 id="currentDateDisplay" class="text-xl font-bold text-blue-600">2026년 1월 27일 (화)</h1>
+                </div>
+                <button onclick="changeDate(1)" class="p-2 hover:bg-gray-100 rounded-full text-2xl">〉</button>
+            </div>
+            <button onclick="goToToday()" class="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-2 rounded-lg shadow-md transition">
+                오늘로 이동
+            </button>
+        </div>
+
+        <!-- 사분면 그리드 -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <!-- 1사분면 -->
+            <div class="quadrant bg-[#FFCDD2] p-4 rounded-2xl border-2 border-red-200 flex flex-col shadow-sm">
+                <div class="mb-4">
+                    <h2 class="text-lg font-bold text-red-900">중요하고 긴급한 일</h2>
+                    <p class="text-sm text-red-700">오늘 반드시 처리해야 하는 일</p>
+                </div>
+                <div id="urgent-important" class="flex-grow space-y-2 overflow-y-auto max-h-[300px] mb-4"></div>
+                <button onclick="openModal('urgent-important')" class="w-full bg-blue-900 text-white py-2 rounded-lg hover:bg-blue-800 transition">+ 할 일 추가</button>
+            </div>
+
+            <!-- 2사분면 -->
+            <div class="quadrant bg-[#C8E6C9] p-4 rounded-2xl border-2 border-green-200 flex flex-col shadow-sm">
+                <div class="mb-4">
+                    <h2 class="text-lg font-bold text-green-900">중요하지만 긴급하지 않은 일</h2>
+                    <p class="text-sm text-green-700">성장과 변화를 만드는 일</p>
+                </div>
+                <div id="not-urgent-important" class="flex-grow space-y-2 overflow-y-auto max-h-[300px] mb-4"></div>
+                <button onclick="openModal('not-urgent-important')" class="w-full bg-blue-900 text-white py-2 rounded-lg hover:bg-blue-800 transition">+ 할 일 추가</button>
+            </div>
+
+            <!-- 3사분면 -->
+            <div class="quadrant bg-[#FFF9C4] p-4 rounded-2xl border-2 border-yellow-200 flex flex-col shadow-sm">
+                <div class="mb-4">
+                    <h2 class="text-lg font-bold text-yellow-900">긴급하지만 중요하지 않은 일</h2>
+                    <p class="text-sm text-yellow-700">위임하거나 자동화할 수 있는 일</p>
+                </div>
+                <div id="urgent-not-important" class="flex-grow space-y-2 overflow-y-auto max-h-[300px] mb-4"></div>
+                <button onclick="openModal('urgent-not-important')" class="w-full bg-blue-900 text-white py-2 rounded-lg hover:bg-blue-800 transition">+ 할 일 추가</button>
+            </div>
+
+            <!-- 4사분면 -->
+            <div class="quadrant bg-[#E0E0E0] p-4 rounded-2xl border-2 border-gray-300 flex flex-col shadow-sm">
+                <div class="mb-4">
+                    <h2 class="text-lg font-bold text-gray-900">중요하지도, 긴급하지도 않은 일</h2>
+                    <p class="text-sm text-gray-700">과감히 줄이거나 없애야 하는 일</p>
+                </div>
+                <div id="not-urgent-not-important" class="flex-grow space-y-2 overflow-y-auto max-h-[300px] mb-4"></div>
+                <button onclick="openModal('not-urgent-not-important')" class="w-full bg-blue-900 text-white py-2 rounded-lg hover:bg-blue-800 transition">+ 할 일 추가</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 입력 모달 -->
+    <div id="taskModal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-xl p-6 w-full max-w-sm">
+            <h3 class="text-lg font-bold mb-4">새로운 할 일</h3>
+            <input type="text" id="taskInput" class="w-full border p-2 rounded mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="할 일을 입력하세요">
+            <div class="flex gap-2">
+                <button onclick="addTask()" class="flex-1 bg-green-500 text-white py-2 rounded hover:bg-green-600">추가</button>
+                <button onclick="closeModal()" class="flex-1 bg-gray-400 text-white py-2 rounded hover:bg-gray-500">취소</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentDate = new Date();
+        let tasks = JSON.parse(localStorage.getItem('eisenhower_tasks')) || {};
+        let activeQuadrant = '';
+
+        function formatDate(date) {
+            const weekdays = ['일', '월', '화', '수', '목', '금', '토'];
+            return `${date.getFullYear()}년 ${date.getMonth() + 1}월 ${date.getDate()}일 (${weekdays[date.getDay()]})`;
+        }
+
+        function updateDisplay() {
+            document.getElementById('currentDateDisplay').innerText = formatDate(currentDate);
+            renderTasks();
+        }
+
+        function changeDate(days) {
+            currentDate.setDate(currentDate.getDate() + days);
+            updateDisplay();
+        }
+
+        function goToToday() {
+            currentDate = new Date();
+            updateDisplay();
+        }
+
+        function openModal(quadrantId) {
+            activeQuadrant = quadrantId;
+            document.getElementById('taskModal').classList.remove('hidden');
+            document.getElementById('taskInput').focus();
+        }
+
+        function closeModal() {
+            document.getElementById('taskModal').classList.add('hidden');
+            document.getElementById('taskInput').value = '';
+        }
+
+        function addTask() {
+            const text = document.getElementById('taskInput').value.trim();
+            if (!text) return;
+
+            const dateKey = currentDate.toISOString().split('T')[0];
+            if (!tasks[dateKey]) tasks[dateKey] = [];
+
+            tasks[dateKey].push({
+                id: Date.now(),
+                text: text,
+                quadrant: activeQuadrant,
+                completed: false
+            });
+
+            saveAndRender();
+            closeModal();
+        }
+
+        function toggleTask(id) {
+            const dateKey = currentDate.toISOString().split('T')[0];
+            tasks[dateKey] = tasks[dateKey].map(t => t.id === id ? {...t, completed: !t.completed} : t);
+            saveAndRender();
+        }
+
+        function deleteTask(id) {
+            const dateKey = currentDate.toISOString().split('T')[0];
+            tasks[dateKey] = tasks[dateKey].filter(t => t.id !== id);
+            saveAndRender();
+        }
+
+        function saveAndRender() {
+            localStorage.setItem('eisenhower_tasks', JSON.stringify(tasks));
+            renderTasks();
+        }
+
+        function renderTasks() {
+            const quadrants = ['urgent-important', 'not-urgent-important', 'urgent-not-important', 'not-urgent-not-important'];
+            quadrants.forEach(q => document.getElementById(q).innerHTML = '');
+
+            const dateKey = currentDate.toISOString().split('T')[0];
+            const currentTasks = tasks[dateKey] || [];
+
+            currentTasks.forEach(task => {
+                const item = document.createElement('div');
+                item.className = 'task-item flex items-center bg-white p-2 rounded-lg shadow-sm border border-black/5';
+                item.innerHTML = `
+                    <button onclick="toggleTask(${task.id})" class="mr-2 w-6 h-6 flex items-center justify-center rounded border ${task.completed ? 'bg-green-500 border-green-500 text-white' : 'border-gray-300 text-transparent'}">
+                        ✓
+                    </button>
+                    <span class="flex-grow text-sm ${task.completed ? 'completed text-gray-400' : 'text-gray-800'}">${task.text}</span>
+                    <button onclick="deleteTask(${task.id})" class="ml-2 text-red-400 hover:text-red-600 font-bold px-2">×</button>
+                `;
+                document.getElementById(task.quadrant).appendChild(item);
+            });
+        }
+
+        // 초기 실행
+        updateDisplay();
+
+        // 엔터키 추가 지원
+        document.getElementById('taskInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') addTask();
+        });
+    </script>
+</body>
+</html>
