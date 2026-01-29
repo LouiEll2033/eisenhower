@@ -86,14 +86,31 @@
         </div>
     </div>
 
+    <!-- 수정 모달 -->
+    <div id="editModal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-xl p-6 w-full max-w-sm">
+            <h3 class="text-lg font-bold mb-4">할 일 수정</h3>
+            <input type="text" id="editInput" class="w-full border p-2 rounded mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="할 일을 수정하세요">
+            <div class="flex gap-2">
+                <button onclick="saveEdit()" class="flex-1 bg-blue-500 text-white py-2 rounded hover:bg-blue-600">저장</button>
+                <button onclick="closeEditModal()" class="flex-1 bg-gray-400 text-white py-2 rounded hover:bg-gray-500">취소</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         let currentDate = new Date();
         let tasks = JSON.parse(localStorage.getItem('eisenhower_tasks')) || {};
         let activeQuadrant = '';
+        let editingTaskId = null;
 
         function formatDate(date) {
             const weekdays = ['일', '월', '화', '수', '목', '금', '토'];
             return `${date.getFullYear()}년 ${date.getMonth() + 1}월 ${date.getDate()}일 (${weekdays[date.getDay()]})`;
+        }
+
+        function getDateKey(date) {
+            return date.toISOString().split('T')[0];
         }
 
         function updateDisplay() {
@@ -122,11 +139,41 @@
             document.getElementById('taskInput').value = '';
         }
 
+        function openEditModal(id) {
+            const dateKey = getDateKey(currentDate);
+            const task = tasks[dateKey].find(t => t.id === id);
+            if (!task) return;
+
+            editingTaskId = id;
+            document.getElementById('editInput').value = task.text;
+            document.getElementById('editModal').classList.remove('hidden');
+            document.getElementById('editInput').focus();
+        }
+
+        function closeEditModal() {
+            document.getElementById('editModal').classList.add('hidden');
+            document.getElementById('editInput').value = '';
+            editingTaskId = null;
+        }
+
+        function saveEdit() {
+            const text = document.getElementById('editInput').value.trim();
+            if (!text) return;
+
+            const dateKey = getDateKey(currentDate);
+            tasks[dateKey] = tasks[dateKey].map(t => 
+                t.id === editingTaskId ? {...t, text: text} : t
+            );
+
+            saveAndRender();
+            closeEditModal();
+        }
+
         function addTask() {
             const text = document.getElementById('taskInput').value.trim();
             if (!text) return;
 
-            const dateKey = currentDate.toISOString().split('T')[0];
+            const dateKey = getDateKey(currentDate);
             if (!tasks[dateKey]) tasks[dateKey] = [];
 
             tasks[dateKey].push({
@@ -141,15 +188,51 @@
         }
 
         function toggleTask(id) {
-            const dateKey = currentDate.toISOString().split('T')[0];
+            const dateKey = getDateKey(currentDate);
             tasks[dateKey] = tasks[dateKey].map(t => t.id === id ? {...t, completed: !t.completed} : t);
             saveAndRender();
         }
 
         function deleteTask(id) {
-            const dateKey = currentDate.toISOString().split('T')[0];
+            const dateKey = getDateKey(currentDate);
             tasks[dateKey] = tasks[dateKey].filter(t => t.id !== id);
             saveAndRender();
+        }
+
+        function moveUncompletedTasksToNextDay() {
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const todayKey = getDateKey(today);
+
+            if (!tasks[todayKey]) return;
+
+            const tomorrow = new Date(today);
+            tomorrow.setDate(tomorrow.getDate() + 1);
+            const tomorrowKey = getDateKey(tomorrow);
+
+            if (!tasks[tomorrowKey]) tasks[tomorrowKey] = [];
+
+            const uncompletedTasks = tasks[todayKey].filter(t => !t.completed);
+            
+            if (uncompletedTasks.length > 0) {
+                // 내일 날짜의 기존 할 일 ID들을 수집
+                const existingTaskTexts = tasks[tomorrowKey].map(t => t.text.toLowerCase());
+                
+                // 중복되지 않은 미완료 할 일만 내일로 이동
+                uncompletedTasks.forEach(task => {
+                    if (!existingTaskTexts.includes(task.text.toLowerCase())) {
+                        tasks[tomorrowKey].push({
+                            ...task,
+                            id: Date.now() + Math.random() // 새로운 고유 ID 생성
+                        });
+                    }
+                });
+
+                // 오늘 날짜에서는 완료된 할 일만 유지
+                tasks[todayKey] = tasks[todayKey].filter(t => t.completed);
+                
+                saveAndRender();
+            }
         }
 
         function saveAndRender() {
@@ -161,7 +244,7 @@
             const quadrants = ['urgent-important', 'not-urgent-important', 'urgent-not-important', 'not-urgent-not-important'];
             quadrants.forEach(q => document.getElementById(q).innerHTML = '');
 
-            const dateKey = currentDate.toISOString().split('T')[0];
+            const dateKey = getDateKey(currentDate);
             const currentTasks = tasks[dateKey] || [];
 
             currentTasks.forEach(task => {
@@ -171,19 +254,67 @@
                     <button onclick="toggleTask(${task.id})" class="mr-2 w-6 h-6 flex items-center justify-center rounded border ${task.completed ? 'bg-green-500 border-green-500 text-white' : 'border-gray-300 text-transparent'}">
                         ✓
                     </button>
-                    <span class="flex-grow text-sm ${task.completed ? 'completed text-gray-400' : 'text-gray-800'}">${task.text}</span>
+                    <span onclick="openEditModal(${task.id})" class="flex-grow text-sm cursor-pointer hover:text-blue-600 ${task.completed ? 'completed text-gray-400' : 'text-gray-800'}">${task.text}</span>
                     <button onclick="deleteTask(${task.id})" class="ml-2 text-red-400 hover:text-red-600 font-bold px-2">×</button>
                 `;
                 document.getElementById(task.quadrant).appendChild(item);
             });
         }
 
+        // 자정에 미완료 할 일 자동 이동
+        function scheduleNextDayMigration() {
+            const now = new Date();
+            const tomorrow = new Date(now);
+            tomorrow.setDate(tomorrow.getDate() + 1);
+            tomorrow.setHours(0, 0, 0, 0);
+            
+            const timeUntilMidnight = tomorrow - now;
+
+            setTimeout(() => {
+                moveUncompletedTasksToNextDay();
+                scheduleNextDayMigration(); // 다음 자정을 위해 재스케줄
+            }, timeUntilMidnight);
+        }
+
         // 초기 실행
         updateDisplay();
+        scheduleNextDayMigration();
 
         // 엔터키 추가 지원
         document.getElementById('taskInput').addEventListener('keypress', (e) => {
             if (e.key === 'Enter') addTask();
+        });
+
+        document.getElementById('editInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') saveEdit();
+        });
+
+        // 페이지 로드 시 오늘 날짜의 미완료 할 일이 있는지 확인
+        window.addEventListener('load', () => {
+            const yesterday = new Date();
+            yesterday.setDate(yesterday.getDate() - 1);
+            const yesterdayKey = getDateKey(yesterday);
+            
+            // 어제 날짜의 미완료 할 일이 있으면 오늘로 이동
+            if (tasks[yesterdayKey]) {
+                const todayKey = getDateKey(new Date());
+                if (!tasks[todayKey]) tasks[todayKey] = [];
+                
+                const uncompletedTasks = tasks[yesterdayKey].filter(t => !t.completed);
+                const existingTaskTexts = tasks[todayKey].map(t => t.text.toLowerCase());
+                
+                uncompletedTasks.forEach(task => {
+                    if (!existingTaskTexts.includes(task.text.toLowerCase())) {
+                        tasks[todayKey].push({
+                            ...task,
+                            id: Date.now() + Math.random()
+                        });
+                    }
+                });
+                
+                tasks[yesterdayKey] = tasks[yesterdayKey].filter(t => t.completed);
+                saveAndRender();
+            }
         });
     </script>
 </body>
